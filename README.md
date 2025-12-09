@@ -66,9 +66,9 @@ BigPlants-100/
 
 - The entire raw dataset is available at the following link:
   ```
-  https://drive.google.com/drive/folders/1zbczeI8HnfzKhMAybibRq9a40Jcm7bX\_?usp=sharing
+  https://drive.google.com/drive/folders/1zbczeI8HnfzKhMAybibRq9a40Jcm7bX_?usp=sharing
   ```
 - The full dataset is available at the following link:
   ```
-  https://drive.google.com/drive/folders/1uEFtoS-XivF030a5BAbM8mD341eqd\_I9?usp=sharing
+  https://drive.google.com/drive/folders/1uEFtoS-XivF030a5BAbM8mD341eqd_I9?usp=sharing
   ```
