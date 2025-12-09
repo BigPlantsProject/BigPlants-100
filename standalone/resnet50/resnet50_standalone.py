@@ -1,0 +1,475 @@
+import os
+import json
+import argparse
+import random
+from pathlib import Path
+from typing import List, Tuple, Dict
+
+import numpy as np
+import pandas as pd
+from PIL import Image
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from tqdm import tqdm
+import timm
+from torch.amp import autocast, GradScaler
+
+# params
+DATA_ROOT_DEFAULT = r"D:\Homework\NC\bigplants_dataset_100_resized"
+
+# -----------------------------
+# Repro & small utils
+# (From script 1)
+# -----------------------------
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = True
+
+def is_image_file(p: Path) -> bool:
+    return p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"} # Added .png from script 2
+
+def list_images_direct(root: Path) -> List[Path]:
+    return [p for p in root.iterdir() if is_image_file(p)]
+
+# -----------------------------
+# Dataset curation per script 1 rules
+# (From script 1, adapted parts from script 2)
+# -----------------------------
+
+PartsKeep = ("hand", "leaf", "flower", "fruit")
+
+def build_selection_for_species(
+    species_dir: Path,
+    parts_keep: Tuple[str, ...] = PartsKeep,
+    per_class_cap: int = 100,
+    seed: int = 42,
+) -> List[Path]:
+    rng = random.Random(seed)
+    sub_images: List[Path] = []
+
+    # Collect images from subfolders hand/leaf/flower/fruit
+    for part in parts_keep:
+        part_dir = species_dir / part
+        if part_dir.exists() and part_dir.is_dir():
+            imgs = [p for p in part_dir.rglob("*") if is_image_file(p)]
+            sub_images.extend(imgs)
+
+    # unique and shuffle
+    sub_images = list(dict.fromkeys(sub_images))
+    rng.shuffle(sub_images)
+
+    # If enough for cap, cut to cap
+    if len(sub_images) >= per_class_cap:
+        return sub_images[:per_class_cap]
+
+    # Else top up with "available" (images directly under species_dir)
+    available_images = list_images_direct(species_dir)
+    rng.shuffle(available_images)
+
+    need = per_class_cap - len(sub_images)
+    chosen = sub_images + available_images[:need]
+    return chosen
+
+
+def scan_dataset(
+    data_root: Path,
+    parts_keep: Tuple[str, ...] = PartsKeep,
+    per_class_cap: int = 100,
+    seed: int = 42,
+) -> pd.DataFrame:
+    species_dirs = sorted([p for p in data_root.iterdir() if p.is_dir()])
+    species_names = [p.name for p in species_dirs]
+    species_to_id = {name: i for i, name in enumerate(species_names)}
+
+    rows = []
+    for species_dir in tqdm(species_dirs, desc="Scanning species"):
+        species = species_dir.name
+        selected_paths = build_selection_for_species(
+            species_dir, parts_keep=parts_keep, per_class_cap=per_class_cap, seed=seed
+        )
+        for img in selected_paths:
+            # determine part/source metadata
+            part_val = None
+            for anc in img.parents:
+                if anc == species_dir:
+                    break
+                if anc.name in parts_keep:
+                    part_val = anc.name
+                    break
+            source = "sub" if part_val is not None else "available"
+            rows.append({
+                "path": str(img.resolve()),
+                "species": species,
+                "label_id": species_to_id[species],
+                "source": source,
+                "part": part_val if part_val is not None else "available",
+            })
+    return pd.DataFrame(rows)
+
+# -----------------------------
+# Torch Dataset
+# (From script 1)
+# -----------------------------
+
+class PlantImageDataset(Dataset):
+    def __init__(self, df: pd.DataFrame, transform=None):
+        self.df = df.reset_index(drop=True)
+        self.transform = transform
+    def __len__(self):
+        return len(self.df)
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        img = Image.open(row["path"]).convert("RGB")
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, int(row["label_id"])
+
+# -----------------------------
+# Transforms
+# (Uses definitions from script 2, in the structure of script 1)
+# (Standard ImageNet transforms are fine for ResNet-50)
+# -----------------------------
+
+def get_transforms(img_size=224):
+    mean = [0.485, 0.456, 0.406]
+    std  = [0.229, 0.224, 0.225]
+    
+    # Augmentations from script 2 (ConvNeXtV2) - also good for ResNet
+    train_tfms = transforms.Compose([
+        transforms.RandomResizedCrop(img_size, scale=(0.8, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(20),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.02),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+    
+    # Eval transforms from script 2
+    eval_tfms = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+    return train_tfms, eval_tfms
+
+# -----------------------------
+# Model: Generic (via timm)
+# (Generic timm loader)
+# -----------------------------
+
+def build_model(model_name: str, num_classes: int):
+    """Builds a model using timm."""
+    try:
+        model = timm.create_model(model_name, pretrained=True, num_classes=num_classes)
+        return model, f"timm:{model_name}"
+    except Exception as e:
+        raise RuntimeError(f"Could not construct {model_name} via timm: {e}")
+
+# -----------------------------
+# Class Weighting Helper
+# (From script 2)
+# -----------------------------
+
+def compute_class_weights(df_train: pd.DataFrame, all_classes: List[str], device: torch.device):
+    """Calculates class weights based on train set, similar to script 2."""
+    train_counts = df_train['species'].value_counts().to_dict()
+    weights = []
+    for c in all_classes:
+        cnt = train_counts.get(c, 0)
+        if cnt > 0:
+            weights.append(1.0 / cnt)
+        else:
+            weights.append(0.0) # Will be fixed
+    
+    w = np.array(weights, dtype=np.float32)
+    
+    if (w > 0).sum() == 0:
+        # All counts are 0? Fallback to equal weights
+        w = np.ones_like(w)
+    else:
+        # Set 0-count classes to min weight (avoids 0 weight)
+        nonzero_min = w[w>0].min()
+        w[w==0] = nonzero_min
+    
+    # Normalize weights (like script 2)
+    w = w / w.sum() * len(w) 
+    return torch.tensor(w, dtype=torch.float, device=device)
+
+# -----------------------------
+# Train / Eval loops
+# (From script 1)
+# -----------------------------
+
+def train_one_epoch(model, loader, criterion, optimizer, device, scaler):
+    model.train()
+    running_loss, correct, total = 0.0, 0, 0
+    pbar = tqdm(loader, desc="Train", leave=False)
+    
+    for imgs, labels in pbar:
+        imgs = imgs.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+
+        optimizer.zero_grad(set_to_none=True)
+        
+        # Use AMP (autocast)
+        with autocast('cuda', enabled=torch.cuda.is_available()):
+            logits = model(imgs)
+            loss = criterion(logits, labels)
+            
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        running_loss += loss.item() * imgs.size(0)
+        preds = logits.argmax(dim=1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+        
+        pbar.set_postfix(loss=f"{running_loss/total:.4f}", acc=f"{correct/total:.4f}")
+
+    return running_loss / total, correct / total
+
+@torch.no_grad()
+def evaluate(model, loader, criterion, device, desc="Val"):
+    model.eval()
+    running_loss, correct, total = 0.0, 0, 0
+    all_labels, all_preds = [], []
+    
+    for imgs, labels in tqdm(loader, desc=desc, leave=False):
+        imgs = imgs.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+
+        # AMP is not strictly needed for eval, but good practice
+        with autocast('cuda', enabled=torch.cuda.is_available()):
+            logits = model(imgs)
+            loss = criterion(logits, labels)
+
+        running_loss += loss.item() * imgs.size(0)
+        preds = logits.argmax(dim=1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+        all_labels.append(labels.cpu().numpy())
+        all_preds.append(preds.cpu().numpy())
+
+    avg_loss = running_loss / total if total > 0 else 0.0
+    acc = correct / total if total > 0 else 0.0
+    y_true = np.concatenate(all_labels) if all_labels else np.array([])
+    y_pred = np.concatenate(all_preds) if all_preds else np.array([])
+    return avg_loss, acc, y_true, y_pred
+
+# -----------------------------
+# Main
+# (Adapted from script 1, using params for ResNet-50)
+# -----------------------------
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root", type=str, default=DATA_ROOT_DEFAULT)
+    # --- MODIFIED ---
+    parser.add_argument("--out_dir", type=str, default="./output_resnet50")
+    
+    # Params adjusted for ResNet-50
+    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--batch_size", type=int, default=16) # Giữ nguyên, 16 là OK
+    parser.add_argument("--lr", type=float, default=2e-4) # Giữ nguyên, 2e-4 là mức learning rate tốt
+    # --- MODIFIED ---
+    parser.add_argument("--weight_decay", type=float, default=1e-4) # 1e-2 (ConvNeXt) quá cao cho ResNet
+    parser.add_argument("--num_workers", type=int, default=3)
+    # --- MODIFIED ---
+    parser.add_argument("--model_name", type=str, default="resnet50.a1_in1k") # Thay đổi mô hình mặc định
+
+    # Params from script 1
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--val_ratio", type=float, default=0.10, help="Target validation ratio (e.g., 0.10 for 10%)")
+    parser.add_argument("--test_ratio", type=float, default=0.20, help="Target test ratio (e.g., 0.20 for 20%)")
+    parser.add_argument("--img_size", type=int, default=224) # 224 là kích thước chuẩn cho ResNet-50
+    parser.add_argument("--per_class_cap", type=int, default=100)
+    parser.add_argument("--patience", type=int, default=7, help="Early stopping patience")
+    
+    args = parser.parse_args()
+
+    assert 0.0 < args.test_ratio < 0.5, "test_ratio should be reasonable (e.g., 0.2)"
+    assert 0.0 < args.val_ratio < 0.5,  "val_ratio should be reasonable (e.g., 0.1)"
+    assert args.val_ratio + args.test_ratio < 1.0, "val_ratio + test_ratio must be < 1.0"
+
+    set_seed(args.seed)
+
+    data_root = Path(args.data_root)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Scanning dataset & selecting images (cap={args.per_class_cap})...")
+    df = scan_dataset(data_root=data_root, per_class_cap=args.per_class_cap, seed=args.seed)
+    assert len(df) > 0, f"No valid images found in {data_root}"
+    df.to_csv(out_dir / "dataset_selected.csv", index=False)
+
+    species_list = sorted(df["species"].unique().tolist())
+    label_map = {s: int(df[df["species"] == s]["label_id"].iloc[0]) for s in species_list}
+    with open(out_dir / "label_map.json", "w", encoding="utf-8") as f:
+        json.dump(label_map, f, ensure_ascii=False, indent=2)
+
+    num_classes = len(species_list)
+    print(f"Selected images: {len(df)}; classes: {num_classes}")
+
+    # ---- Split 70:10:20 (from script 1) ----
+    print(f"Splitting train/val/test (target ≈ {1-args.test_ratio-args.val_ratio:.0%}/{args.val_ratio:.0%}/{args.test_ratio:.0%})...")
+    
+    # 1. Split off Test (20%)
+    df_trainval, df_test = train_test_split(
+        df,
+        test_size=args.test_ratio,
+        random_state=args.seed,
+        stratify=df["species"],
+    )
+    
+    # 2. Split Train/Val from the remainder
+    # Target 10% val from 80% total = 0.10 / 0.80 = 0.125
+    val_ratio_adj = args.val_ratio / (1.0 - args.test_ratio)
+    df_train, df_val = train_test_split(
+        df_trainval,
+        test_size=val_ratio_adj,
+        random_state=args.seed,
+        stratify=df_trainval["species"],
+    )
+
+    for name, d in [("train", df_train), ("val", df_val), ("test", df_test)]:
+        d.to_csv(out_dir / f"{name}.csv", index=False)
+        print(f"{name}: {len(d)} images")
+
+    total_n = len(df)
+    print(
+        f"Actual ratios → train: {len(df_train)/total_n:.3f}, "
+        f"val: {len(df_val)/total_n:.3f}, test: {len(df_test)/total_n:.3f}"
+    )
+
+    # ---- Datasets & Loaders ----
+    train_tfms, eval_tfms = get_transforms(img_size=args.img_size)
+
+    ds_train = PlantImageDataset(df_train, transform=train_tfms)
+    ds_val   = PlantImageDataset(df_val,   transform=eval_tfms)
+    ds_test  = PlantImageDataset(df_test,  transform=eval_tfms)
+
+    pin_mem = torch.cuda.is_available()
+    train_loader = DataLoader(
+        ds_train, batch_size=args.batch_size, shuffle=True,
+        num_workers=args.num_workers, pin_memory=pin_mem,
+    )
+    val_loader = DataLoader(
+        ds_val, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.num_workers, pin_memory=pin_mem
+    )
+    test_loader = DataLoader(
+        ds_test, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.num_workers, pin_memory=pin_mem
+    )
+
+    # ---- Model ----
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # --- MODIFIED ---
+    model, backend = build_model(model_name=args.model_name, num_classes=num_classes)
+    model = model.to(device)
+    
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs!")
+        model = nn.DataParallel(model)
+
+    # Use class weights (from script 2)
+    weight_tensor = compute_class_weights(df_train, species_list, device)
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor)
+    
+    # Use optimizer params (adjusted for ResNet)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scaler = GradScaler(enabled=torch.cuda.is_available())
+
+    print(f"Start training on {device} | backend={backend} | model={args.model_name}")
+    best_val_acc = 0.0
+    best_ckpt = out_dir / "best_model.pth" # Use .pth like script 2
+    no_improve = 0
+
+    for epoch in range(1, args.epochs + 1):
+        print(f"\nEpoch {epoch}/{args.epochs}")
+        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+        val_loss, val_acc, _, _ = evaluate(model, val_loader, criterion, device, desc="Val")
+        scheduler.step()
+        print(f"Train | loss={train_loss:.4f}, acc={train_acc:.4f}")
+        print(f"Val   | loss={val_loss:.4f}, acc={val_acc:.4f}")
+
+        # --- Checkpointing (from script 1) ---
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            no_improve = 0
+            state = {
+                "epoch": epoch,
+                "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "val_acc": best_val_acc,
+                "label_map": label_map,
+                "backend": backend,
+                "model_name": args.model_name,
+            }
+            torch.save(state, best_ckpt)
+            print(f"✅ Saved best checkpoint to {best_ckpt} (val_acc={best_val_acc:.4f})")
+        else:
+            no_improve += 1
+            if no_improve >= args.patience:
+                print(f"Early stopping (no improvement for {args.patience} epochs).")
+                break
+    # --- End Training Loop ---
+
+    if best_ckpt.exists():
+        ckpt = torch.load(best_ckpt, map_location="cpu")
+        # Handle DataParallel wrapper
+        if isinstance(model, nn.DataParallel):
+            model.module.load_state_dict(ckpt["model_state"])
+        else:
+            model.load_state_dict(ckpt["model_state"])
+        print(f"Loaded best checkpoint (val_acc={ckpt.get('val_acc', -1):.4f})")
+    else:
+        print("Warning: No best checkpoint found. Using last epoch model.")
+
+    # ---- Final Test (from script 1) ----
+    print("\nRunning final evaluation on test set...")
+    test_loss, test_acc, y_true, y_pred = evaluate(model, test_loader, criterion, device, desc="Test")
+    print(f"\nTest  | loss={test_loss:.4f}, acc={test_acc:.4f}")
+
+    report = classification_report(
+        y_true, y_pred,
+        labels=list(range(num_classes)),
+        target_names=[s for s in species_list],
+        zero_division=0,
+        output_dict=True,
+    )
+    rep_df = pd.DataFrame(report).transpose()
+    rep_df.to_csv(out_dir / "test_classification_report.csv")
+
+    with open(out_dir / "metrics_summary.json", "w") as f:
+        json.dump({
+            "test_loss": float(test_loss),
+            "test_acc": float(test_acc),
+            "best_val_acc": float(best_val_acc),
+            "splits": {
+                "train": len(df_train),
+                "val": len(df_val),
+                "test": len(df_test),
+            },
+            "model": args.model_name,
+        }, f, indent=2)
+
+    print(f"Saved test report to {out_dir / 'test_classification_report.csv'}")
+    print("🎉🎉🎉Done!")
+
+if __name__ == "__main__":
+    main()
+  
