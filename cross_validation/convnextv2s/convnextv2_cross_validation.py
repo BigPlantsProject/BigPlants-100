@@ -19,8 +19,7 @@ from tqdm import tqdm
 import time
 from contextlib import nullcontext
 
-# -------------------------- Defaults (tuned) --------------------------
-DATA_ROOT_DEFAULT = r"D:\Homework\NC\bigplants_dataset_100_resized"
+DATA_ROOT_DEFAULT = "path/to/bigplants_dataset_100_resized"
 OUT_DIR_DEFAULT = "./output_convnextv2_cv_resume_improved"
 PARTS = {"hand","leaf","flower","fruit"}
 MAX_PER_CLASS_DEFAULT = 100
@@ -28,7 +27,7 @@ RANDOM_SEED_DEFAULT = 42
 TEST_SIZE_DEFAULT = 0.15
 K_FOLDS_DEFAULT = 5
 IMG_EXT = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
-# tuned defaults:
+
 IMG_SIZE_DEFAULT = 224
 EPOCHS_DEFAULT = 40
 BATCH_SIZE_DEFAULT = 16
@@ -38,7 +37,7 @@ NUM_WORKERS_DEFAULT = 3
 MODEL_NAME_DEFAULT = "convnextv2_tiny.fcmae_ft_in22k_in1k"
 USE_ONECYCLE_DEFAULT = True
 WARMUP_EPOCHS_DEFAULT = 3
-# ---------------------------------------------------------------------
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -167,7 +166,6 @@ def accuracy_top1(output, target):
         total = target.size(0)
         return correct, total
 
-# ---------------- Main training w/ improvements ----------------
 def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
                           model_name=MODEL_NAME_DEFAULT,
                           epochs=EPOCHS_DEFAULT, batch_size=BATCH_SIZE_DEFAULT,
@@ -338,26 +336,26 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
                 except Exception:
                     pass
 
-            # validation
+            # Validation
             model.eval()
             val_correct, val_total = 0, 0
-            val_loss_total = 0.0  # <--- THÊM VÀO
+            val_loss_total = 0.0
             with torch.no_grad():
                 for imgs, labels in val_loader:
                     imgs = imgs.to(device, non_blocking=True)
                     labels = labels.to(device, non_blocking=True)
                     with autocast_cm():
                         outputs = model(imgs)
-                        val_loss = criterion(outputs, labels) # <--- THÊM VÀO
+                        val_loss = criterion(outputs, labels)
                     c, t = accuracy_top1(outputs, labels)
-                    val_loss_total += val_loss.item() * imgs.size(0) # <--- THÊM VÀO
+                    val_loss_total += val_loss.item() * imgs.size(0)
                     val_correct += c; val_total += t
             
             val_acc = val_correct / max(1, val_total)
-            val_loss_avg = val_loss_total / max(1, val_total) # <--- THÊM VÀO
-            print(f"Fold {fold_id+1} Epoch {epoch} -> val_loss: {val_loss_avg:.4f}, val_acc: {val_acc:.4f} (best_acc {best_val_acc:.4f})") # <--- SỬA ĐỔI
+            val_loss_avg = val_loss_total / max(1, val_total)
+            print(f"Fold {fold_id+1} Epoch {epoch} -> val_loss: {val_loss_avg:.4f}, val_acc: {val_acc:.4f} (best_acc {best_val_acc:.4f})")
 
-            # save best model
+            # Save best model
             fold_dir = os.path.join(out_dir, f"fold_{fold_id+1}")
             os.makedirs(fold_dir, exist_ok=True)
             if val_acc > best_val_acc:
@@ -365,7 +363,7 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
                 torch.save(model.state_dict(), os.path.join(fold_dir, f"best_model_fold_{fold_id+1}.pth"))
                 print(f" -> New best model saved for fold {fold_id+1}")
 
-            # save resume checkpoint every epoch
+            # Save resume checkpoint every epoch
             resume_checkpoint = {
                 'fold_id': fold_id,
                 'epoch': epoch,
@@ -377,7 +375,7 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
             }
             torch.save(resume_checkpoint, os.path.join(out_dir, "resume_checkpoint.pth"))
 
-        # --- THÊM VÀO: Báo cáo classification report cho fold này dùng model tốt nhất ---
+        # Classification report
         fold_dir = os.path.join(out_dir, f"fold_{fold_id+1}")
         best_model_path = os.path.join(fold_dir, f"best_model_fold_{fold_id+1}.pth")
         if os.path.exists(best_model_path):
@@ -403,7 +401,6 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
             print(f"Fold {fold_id+1} validation report đã lưu -> {report_path}")
         else:
             print(f"Fold {fold_id+1} - Không tìm thấy best model, bỏ qua validation report.")
-        # --- KẾT THÚC PHẦN THÊM VÀO ---
 
         print(f"Fold {fold_id+1} finished. Best val_acc: {best_val_acc:.4f}")
         all_fold_val_accs.append(best_val_acc)
@@ -413,11 +410,8 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
     print(f"\nCV summary: val_accs per fold = {[f'{a:.4f}' for a in all_fold_val_accs]}")
     print(f"Mean Validation Accuracy: {mean_acc:.4f} ± {std_acc:.4f}")
 
-    # --- ĐÃ XÓA PHẦN FINAL TRAINING VÀ FINAL TEST EVALUATION ---
-
     return mean_acc
 
-# --------------------- CLI ---------------------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", default=DATA_ROOT_DEFAULT)
