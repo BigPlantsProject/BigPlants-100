@@ -1,8 +1,8 @@
-# 🌿From Classical CNNs to Modern Deep Architectures: Multiclass Plant Recognition on the BigPlants Dataset
+<div align="center"> <h1>From Classical CNNs to Modern Deep Architectures: <br>Multiclass Plant Recognition on the BigPlants Dataset🌿</h1> </div>
 
 ## 📚 Overview
 
-Plant image classification remains a challenging task due to variations in lighting conditions, complex backgrounds, and high visual similarity among species. This task plays a crucial role in biodiversity research, medicinal plant identification, and ecological monitoring. In this study, we present BigPlants-100, a newly curated dataset consisting of images from 100 plant species, each representing a distinct class, selected from the Vietnam Plant Database. All images were manually collected and annotated by our team from reliable sources. The selected species were chosen based on their medicinal importance, toxicity, or both. Using the BigPlants-100 dataset, we conducted a comprehensive evaluation of several state-of-the-art deep learning architectures, including ConvNeXtV2-S, EfficientNetV2-S, MobileNetV3-Large, and ResNet-50, employing cross-validation to ensure result stability and reliability. Furthermore, we implemented a multi-teacher knowledge distillation framework, where multiple high-performing models act as teachers to guide a student network. Experimental results demonstrate that using MobileNetV3-Large as the student distilled from ConvNeXtV2-S, EfficientNetV2-S and ResNet-50 yields superior performance compared to individually trained models. These findings highlight the effectiveness of multi-teacher knowledge distillation in enhancing generalization and accuracy for large-scale multi-class plant image classification.
+Plant image classification remains a challenging task due to variations in lighting, complex backgrounds, and high visual similarity among species. This task is crucial for biodiversity research and medicinal plant identification. In this study, we present **BigPlants-100**, a newly curated dataset consisting of 100 plant species selected from the Vietnam Plant Database based on their medicinal and toxic importance. Using this dataset, we evaluated several state-of-the-art architectures, including ConvNeXt V2-Tiny, EfficientNetV2-S, and ResNet-50. Furthermore, we implemented a multi-teacher knowledge distillation framework to guide a MobileNetV3-Large student network. Experimental results demonstrate that the distilled student model achieves notable performance gains, **improving both accuracy and macro F1-score from 0.849 to 0.894**, while **reducing training loss by more than 31%** compared to individually trained models. These findings highlight the effectiveness of multi-teacher knowledge distillation in enhancing generalization and accuracy for large-scale multi-class plant image classification.
 
 ## 📁 Source Code Structure
 
@@ -13,7 +13,7 @@ BigPlants-100/
 │  │  ├─ output/
 │  │  │  ├─ convnextv2_test_classification_report.csv
 │  │  │  ├─ ...
-│  │  └─ convnextv2s_standalone.py
+│  │  └─ convnextv2_standalone.py
 │  ├─ efficientnetv2s/
 │  │  ├─ output/
 │  │  │  ├─ efficientnetv2s_test_classification_report.csv
@@ -34,7 +34,7 @@ BigPlants-100/
 │  │  ├─ output/
 │  │  │  ├─ convnextv2_test_classification_report_fold1.csv
 │  │  │  ├─ ...
-│  │  └─ convnextv2s_cross_validation.py
+│  │  └─ convnextv2_cross_validation.py
 │  ├─ efficientnetv2s/
 │  │  ├─ output/
 │  │  │  ├─ efficientnetv2s_test_classification_report_fold1.csv
