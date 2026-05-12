@@ -379,7 +379,7 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
         fold_dir = os.path.join(out_dir, f"fold_{fold_id+1}")
         best_model_path = os.path.join(fold_dir, f"best_model_fold_{fold_id+1}.pth")
         if os.path.exists(best_model_path):
-            print(f"Fold {fold_id+1} - Tải model tốt nhất để tạo validation report...")
+            print(f"Fold {fold_id+1} - Load the best model for generating validation reports....")
             model.load_state_dict(torch.load(best_model_path, map_location=device))
             model.eval()
             all_labels = []; all_preds = []
@@ -398,9 +398,9 @@ def train_and_evaluate_cv(full_manifest_df, out_dir, device, k_folds=5,
             report = classification_report(y_true, y_pred, target_names=target_names, labels=list(range(len(target_names))), zero_division=0, output_dict=True)
             report_path = os.path.join(fold_dir, "validation_classification_report.csv")
             pd.DataFrame(report).transpose().to_csv(report_path)
-            print(f"Fold {fold_id+1} validation report đã lưu -> {report_path}")
+            print(f"Fold {fold_id+1} validation report is saved -> {report_path}")
         else:
-            print(f"Fold {fold_id+1} - Không tìm thấy best model, bỏ qua validation report.")
+            print(f"Fold {fold_id+1} - No best model found, skip validation report.")
 
         print(f"Fold {fold_id+1} finished. Best val_acc: {best_val_acc:.4f}")
         all_fold_val_accs.append(best_val_acc)
