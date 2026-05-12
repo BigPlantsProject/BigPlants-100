@@ -36,7 +36,7 @@ def list_images_direct(root: Path) -> List[Path]:
     return [p for p in root.iterdir() if is_image_file(p)]
 
 # -----------------------------
-# Dataset curation per your rules
+# Dataset curation
 # -----------------------------
 
 PartsKeep = ("hand","leaf","flower","fruit")
@@ -91,7 +91,6 @@ def scan_dataset(
             species_dir, parts_keep=parts_keep, per_class_cap=per_class_cap, seed=seed
         )
         for img in selected_paths:
-            # determine part/source metadata
             part_val = None
             for anc in img.parents:
                 if anc == species_dir:
@@ -261,9 +260,6 @@ def evaluate(model, loader, criterion, device, desc="Val"):
     y_pred = np.concatenate(all_preds) if all_preds else np.array([])
     return avg_loss, acc, y_true, y_pred
 
-# -----------------------------
-# Main
-# -----------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -277,7 +273,6 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--use_weighted_sampler", action="store_true")
 
-    # To get TRAIN:VAL:TEST ≈ 70% : 10% : 20%
     parser.add_argument("--val_ratio", type=float, default=0.10, help="validation ratio on the full dataset")
     parser.add_argument("--test_ratio", type=float, default=0.20, help="test ratio on the full dataset")
     parser.add_argument("--img_size", type=int, default=224)
@@ -306,7 +301,6 @@ def main():
 
     print(f"Selected images: {len(df)}; classes: {len(species_list)}")
 
-    # ---- Split 70:10:20 ----
     print("Splitting train/val/test (target ≈ 70/10/20)...")
     df_trainval, df_test = train_test_split(
         df,
@@ -314,7 +308,7 @@ def main():
         random_state=args.seed,
         stratify=df["species"],
     )
-    # To achieve val ≈ 10% of total, split from the remaining 80% with 0.10/0.80 = 0.125
+
     val_ratio_adj = args.val_ratio / (1.0 - args.test_ratio)
     df_train, df_val = train_test_split(
         df_trainval,
