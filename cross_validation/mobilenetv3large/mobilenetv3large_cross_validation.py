@@ -390,7 +390,7 @@ def run_one_fold(
 # ------------------------------
 
 def parse_args():
-    p = argparse.ArgumentParser(description="MobileNetV3-Large Pure K-Fold Cross-Validation")
+    p = argparse.ArgumentParser(description="MobileNetV3-Large K-Fold Cross-Validation")
     p.add_argument('--data_root', type=str, required=True, help='Root folder containing class subfolders')
     p.add_argument('--out_dir', type=str, required=True, help='Output directory for logs/checkpoints')
     p.add_argument('--epochs', type=int, default=30)
