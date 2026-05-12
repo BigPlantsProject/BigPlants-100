@@ -20,13 +20,7 @@ from tqdm import tqdm
 import timm
 from torch.amp import autocast, GradScaler
 
-# params
-DATA_ROOT_DEFAULT = r"D:\Homework\NC\bigplants_dataset_100_resized"
-
-# -----------------------------
-# Repro & small utils
-# (From script 1)
-# -----------------------------
+DATA_ROOT_DEFAULT = "path/to/bigplants_dataset_100_resized"
 
 def set_seed(seed: int = 42):
     random.seed(seed)
@@ -36,15 +30,10 @@ def set_seed(seed: int = 42):
     torch.backends.cudnn.benchmark = True
 
 def is_image_file(p: Path) -> bool:
-    return p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"} # Added .png from script 2
+    return p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}
 
 def list_images_direct(root: Path) -> List[Path]:
     return [p for p in root.iterdir() if is_image_file(p)]
-
-# -----------------------------
-# Dataset curation per script 1 rules
-# (From script 1, adapted parts from script 2)
-# -----------------------------
 
 PartsKeep = ("hand", "leaf", "flower", "fruit")
 
@@ -98,7 +87,6 @@ def scan_dataset(
             species_dir, parts_keep=parts_keep, per_class_cap=per_class_cap, seed=seed
         )
         for img in selected_paths:
-            # determine part/source metadata
             part_val = None
             for anc in img.parents:
                 if anc == species_dir:
@@ -116,11 +104,6 @@ def scan_dataset(
             })
     return pd.DataFrame(rows)
 
-# -----------------------------
-# Torch Dataset
-# (From script 1)
-# -----------------------------
-
 class PlantImageDataset(Dataset):
     def __init__(self, df: pd.DataFrame, transform=None):
         self.df = df.reset_index(drop=True)
@@ -134,16 +117,11 @@ class PlantImageDataset(Dataset):
             img = self.transform(img)
         return img, int(row["label_id"])
 
-# -----------------------------
-# Transforms
-# (Uses definitions from script 2, in the structure of script 1)
-# -----------------------------
-
 def get_transforms(img_size=224):
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
     
-    # Augmentations from script 2 (ConvNeXtV2)
+    # Augmentations
     train_tfms = transforms.Compose([
         transforms.RandomResizedCrop(img_size, scale=(0.8, 1.0)),
         transforms.RandomHorizontalFlip(),
@@ -153,7 +131,7 @@ def get_transforms(img_size=224):
         transforms.Normalize(mean=mean, std=std),
     ])
     
-    # Eval transforms from script 2
+    # Eval transforms
     eval_tfms = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
@@ -161,22 +139,12 @@ def get_transforms(img_size=224):
     ])
     return train_tfms, eval_tfms
 
-# -----------------------------
-# Model: ConvNeXtV2
-# (Uses definitions from script 2, in the structure of script 1)
-# -----------------------------
-
 def build_convnextv2(model_name: str, num_classes: int):
     try:
         model = timm.create_model(model_name, pretrained=True, num_classes=num_classes)
         return model, f"timm:{model_name}"
     except Exception as e:
         raise RuntimeError(f"Could not construct {model_name} via timm: {e}")
-
-# -----------------------------
-# Class Weighting Helper
-# (From script 2)
-# -----------------------------
 
 def compute_class_weights(df_train: pd.DataFrame, all_classes: List[str], device: torch.device):
     """Calculates class weights based on train set, similar to script 2."""
@@ -187,26 +155,18 @@ def compute_class_weights(df_train: pd.DataFrame, all_classes: List[str], device
         if cnt > 0:
             weights.append(1.0 / cnt)
         else:
-            weights.append(0.0) # Will be fixed
+            weights.append(0.0)
     
     w = np.array(weights, dtype=np.float32)
     
     if (w > 0).sum() == 0:
-        # All counts are 0? Fallback to equal weights
         w = np.ones_like(w)
     else:
-        # Set 0-count classes to min weight (avoids 0 weight)
         nonzero_min = w[w>0].min()
         w[w==0] = nonzero_min
     
-    # Normalize weights (like script 2)
     w = w / w.sum() * len(w) 
     return torch.tensor(w, dtype=torch.float, device=device)
-
-# -----------------------------
-# Train / Eval loops
-# (From script 1)
-# -----------------------------
 
 def train_one_epoch(model, loader, criterion, optimizer, device, scaler):
     model.train()
@@ -247,7 +207,6 @@ def evaluate(model, loader, criterion, device, desc="Val"):
         imgs = imgs.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
-        # AMP is not strictly needed for eval, but good practice
         with autocast('cuda', enabled=torch.cuda.is_available()):
             logits = model(imgs)
             loss = criterion(logits, labels)
@@ -266,17 +225,11 @@ def evaluate(model, loader, criterion, device, desc="Val"):
     y_pred = np.concatenate(all_preds) if all_preds else np.array([])
     return avg_loss, acc, y_true, y_pred
 
-# -----------------------------
-# Main
-# (Adapted from script 1, using params from script 2)
-# -----------------------------
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", type=str, default=DATA_ROOT_DEFAULT)
     parser.add_argument("--out_dir", type=str, default="./output_convnextv2")
     
-    # Params from script 2
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-4)
@@ -284,7 +237,6 @@ def main():
     parser.add_argument("--num_workers", type=int, default=3)
     parser.add_argument("--model_name", type=str, default="convnextv2_tiny.fcmae_ft_in22k_in1k")
 
-    # Params from script 1
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--val_ratio", type=float, default=0.10, help="Target validation ratio (e.g., 0.10 for 10%)")
     parser.add_argument("--test_ratio", type=float, default=0.20, help="Target test ratio (e.g., 0.20 for 20%)")
@@ -317,10 +269,8 @@ def main():
     num_classes = len(species_list)
     print(f"Selected images: {len(df)}; classes: {num_classes}")
 
-    # ---- Split 70:10:20 (from script 1) ----
     print(f"Splitting train/val/test (target ≈ {1-args.test_ratio-args.val_ratio:.0%}/{args.val_ratio:.0%}/{args.test_ratio:.0%})...")
     
-    # 1. Split off Test (20%)
     df_trainval, df_test = train_test_split(
         df,
         test_size=args.test_ratio,
@@ -328,8 +278,6 @@ def main():
         stratify=df["species"],
     )
     
-    # 2. Split Train/Val from the remainder
-    # Target 10% val from 80% total = 0.10 / 0.80 = 0.125
     val_ratio_adj = args.val_ratio / (1.0 - args.test_ratio)
     df_train, df_val = train_test_split(
         df_trainval,
@@ -348,7 +296,6 @@ def main():
         f"val: {len(df_val)/total_n:.3f}, test: {len(df_test)/total_n:.3f}"
     )
 
-    # ---- Datasets & Loaders ----
     train_tfms, eval_tfms = get_transforms(img_size=args.img_size)
 
     ds_train = PlantImageDataset(df_train, transform=train_tfms)
@@ -378,18 +325,16 @@ def main():
         print(f"Using {torch.cuda.device_count()} GPUs!")
         model = nn.DataParallel(model)
 
-    # Use class weights (from script 2)
     weight_tensor = compute_class_weights(df_train, species_list, device)
     criterion = nn.CrossEntropyLoss(weight=weight_tensor)
     
-    # Use optimizer params (from script 2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     scaler = GradScaler(enabled=torch.cuda.is_available())
 
     print(f"Start training on {device} | backend={backend}")
     best_val_acc = 0.0
-    best_ckpt = out_dir / "best_model.pth" # Use .pth like script 2
+    best_ckpt = out_dir / "best_model.pth"
     no_improve = 0
 
     for epoch in range(1, args.epochs + 1):
@@ -400,7 +345,6 @@ def main():
         print(f"Train | loss={train_loss:.4f}, acc={train_acc:.4f}")
         print(f"Val   | loss={val_loss:.4f}, acc={val_acc:.4f}")
 
-        # --- Checkpointing (from script 1) ---
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             no_improve = 0
@@ -420,11 +364,9 @@ def main():
             if no_improve >= args.patience:
                 print(f"Early stopping (no improvement for {args.patience} epochs).")
                 break
-    # --- End Training Loop ---
 
     if best_ckpt.exists():
         ckpt = torch.load(best_ckpt, map_location="cpu")
-        # Handle DataParallel wrapper
         if isinstance(model, nn.DataParallel):
             model.module.load_state_dict(ckpt["model_state"])
         else:
@@ -433,7 +375,6 @@ def main():
     else:
         print("Warning: No best checkpoint found. Using last epoch model.")
 
-    # ---- Final Test (from script 1) ----
     print("\nRunning final evaluation on test set...")
     test_loss, test_acc, y_true, y_pred = evaluate(model, test_loader, criterion, device, desc="Test")
     print(f"\nTest  | loss={test_loss:.4f}, acc={test_acc:.4f}")
