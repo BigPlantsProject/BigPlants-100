@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 def all_image_paths(root: Path):
-    print(f"[LOG] Đang duyệt thư mục: {root}")
+    print(f"[LOG] Processing folder: {root}")
     for p in root.rglob("*"):
         if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
             yield p
@@ -43,16 +43,16 @@ def main(args):
     # 1. FIND ALL IMAGE FILES
     # ============================
     print("\n======================")
-    print("[LOG] BẮT ĐẦU QUÉT ẢNH")
+    print("[LOG] Starting find all images")
     print("======================")
     files = list(all_image_paths(root))
-    print(f"[LOG] Tổng số ảnh tìm thấy: {len(files)}")
+    print(f"[LOG] Total images found: {len(files)}")
 
     # ============================
     # 2. HASHING
     # ============================
     print("\n======================")
-    print("[LOG] BẮT ĐẦU HASHING (phash)")
+    print("[LOG] Starting HASHING (phash)")
     print("======================")
     phash_map = {}
     errors = []
@@ -70,13 +70,13 @@ def main(args):
             except Exception as e:
                 errors.append(f"{p}: {e}")
 
-    print(f"[LOG] Hash thành công: {len(phash_map)} | Lỗi: {len(errors)}")
+    print(f"[LOG] Successful Hash: {len(phash_map)} | Error: {len(errors)}")
 
     # ============================
     # 3. EXACT DUPLICATES
     # ============================
     print("\n======================")
-    print("[LOG] KIỂM TRA TRÙNG KHỚP PHASH EXACT")
+    print("[LOG] PHASH EXACT MATCH CHECKING")
     print("======================")
 
     hash_to_paths = {}
@@ -88,7 +88,7 @@ def main(args):
 
     for h, paths in hash_to_paths.items():
         if len(paths) > 1:
-            print(f"[LOG] → exact duplicate group tìm thấy ({len(paths)} ảnh)")
+            print(f"[LOG] → exact duplicate group find ({len(paths)} image)")
             paths_sorted = sorted(paths)
             canonical = paths_sorted[0]
             kept.add(canonical)
@@ -102,7 +102,7 @@ def main(args):
     # 4. NEAR DUPLICATES (phash distance)
     # ============================
     print("\n======================")
-    print("[LOG] KIỂM TRA TRÙNG GẦN GIỐNG (NEAR-DUPLICATES)")
+    print("[LOG] NEAR-DUPLICATES CHECKING")
     print(f"[LOG] Threshold distance = {args.threshold}")
     print("======================")
 
@@ -140,7 +140,7 @@ def main(args):
     # 5. EXPORT CSV
     # ============================
     print("\n======================")
-    print("[LOG] XUẤT FILE CSV")
+    print("[LOG] EXPORT FILE CSV")
     print("======================")
 
     df = pd.DataFrame(duplicates_records, columns=["original", "duplicate", "distance", "method"])
@@ -149,14 +149,14 @@ def main(args):
     df.to_csv(out_csv, index=False)
 
     print(f"[LOG] Report CSV: {out_csv}")
-    print(f"[LOG] Tổng duplicate tìm thấy: {len(df)}")
+    print(f"[LOG] Total duplicate is found: {len(df)}")
 
     # ============================
     # 6. MOVE DUPLICATES
     # ============================
     if args.move:
         print("\n======================")
-        print("[LOG] BẮT ĐẦU MOVE FILE DUPLICATE")
+        print("[LOG] STARTING MOVE FILE DUPLICATE")
         print("======================")
 
         dupdir = Path(args.dupdir)
@@ -194,7 +194,7 @@ def main(args):
                 shutil.move(str(dup_p), str(target_path))
                 moved += 1
 
-        print(f"[LOG] Tổng số file đã move: {moved} (dry-run={args.dry_run})")
+        print(f"[LOG] Total file is moved: {moved} (dry-run={args.dry_run})")
 
     # ============================
     # 7. LOG ERRORS
@@ -204,14 +204,14 @@ def main(args):
         with open(errf, "w", encoding="utf8") as f:
             for e in errors:
                 f.write(e + "\n")
-        print(f"[LOG] Ghi lỗi vào file: {errf}")
+        print(f"[LOG] Record the errors in the file: {errf}")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("root", help="Root folder chứa ảnh")
+    p.add_argument("root", help="Root folder that include image")
     p.add_argument("--out", default="duplicates_report.csv", help="CSV report path")
-    p.add_argument("--dupdir", default="duplicates", help="Folder để move duplicates (nếu bật --move)")
+    p.add_argument("--dupdir", default="duplicates", help="Folder to move duplicates (if --move is enabled)")
     p.add_argument("--threshold", type=int, default=5, help="Hamming distance threshold")
     p.add_argument("--hash-size", type=int, default=8, help="phash hash_size")
     p.add_argument("--move", action="store_true")
