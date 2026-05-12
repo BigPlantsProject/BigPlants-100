@@ -30,7 +30,7 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True  # images fixed size => faster
+    torch.backends.cudnn.benchmark = True
 
 def is_image_file(p: Path) -> bool:
     return p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
@@ -41,7 +41,7 @@ def list_images_direct(d: Path) -> List[Path]:
     return [p for p in d.iterdir() if p.is_file() and is_image_file(p)]
 
 # ---------------------------
-# Dataset curation (hand/leaf/flower/fruit + top-up available, cap<=100)
+# Dataset curation
 # ---------------------------
 PARTS = ["hand", "leaf", "flower", "fruit"]
 
@@ -389,10 +389,10 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Scan dataset (apply selection rule & cap)
+    # 1) Scan dataset
     df = scan_dataset(data_root, cap=args.cap_per_class, out_dir=out_dir)
 
-    # 2) Stratified K-Fold (pure CV)
+    # 2) Stratified K-Fold
     labels = df["label_id"].values
     skf = StratifiedKFold(n_splits=args.kfolds, shuffle=True, random_state=args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
