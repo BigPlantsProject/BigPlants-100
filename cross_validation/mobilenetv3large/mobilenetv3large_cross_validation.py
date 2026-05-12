@@ -37,7 +37,7 @@ def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True  # images are fixed size → ok
+    torch.backends.cudnn.benchmark = True
 
 
 def is_image_file(p: Path) -> bool:
@@ -86,7 +86,6 @@ def build_selection_for_species(species_dir: Path, cap: int = 100) -> SpeciesSel
     if len(sub_paths) >= cap:
         selected = sub_paths[:cap]
     else:
-        # need to top-up from images directly under species_dir (available)
         avail_paths = list_images_direct(species_dir)
         avail_total = len(avail_paths)
         random.shuffle(avail_paths)
@@ -119,7 +118,6 @@ def scan_dataset(data_root: Path, cap: int = 100, out_dir: Path | None = None) -
         sel = build_selection_for_species(d, cap=cap)
         selections.append(sel)
         for p in sel.paths:
-            # detect origin (sub vs available) for analysis only
             part_name = "available"
             src = "available"
             for part in PARTS:
@@ -265,7 +263,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, criterion: nn.Module, 
 
 
 # ------------------------------
-# Fold runner (PURE CV)
+# Fold runner
 # ------------------------------
 
 def run_one_fold(
@@ -392,7 +390,7 @@ def run_one_fold(
 # ------------------------------
 
 def parse_args():
-    p = argparse.ArgumentParser(description="MobileNetV3-Large Pure K-Fold Cross-Validation (no fixed test set)")
+    p = argparse.ArgumentParser(description="MobileNetV3-Large Pure K-Fold Cross-Validation")
     p.add_argument('--data_root', type=str, required=True, help='Root folder containing class subfolders')
     p.add_argument('--out_dir', type=str, required=True, help='Output directory for logs/checkpoints')
     p.add_argument('--epochs', type=int, default=30)
@@ -418,10 +416,10 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Scan & select images per class (cap to 100)
+    # 1) Scan & select images per class
     df = scan_dataset(data_root, cap=args.cap_per_class, out_dir=out_dir)
 
-    # 2) Pure Stratified K-Fold on the entire dataset (no fixed test)
+    # 2) Stratified K-Fold on the entire dataset
     labels = df["label_id"].values
     skf = StratifiedKFold(n_splits=args.kfolds, shuffle=True, random_state=args.seed)
 
@@ -464,7 +462,7 @@ def main():
     with open(out_dir / 'kfold_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    print("\n===== PURE K-FOLD SUMMARY =====")
+    print("\n===== K-FOLD SUMMARY =====")
     print(f"Val Acc (inner):          mean={mean_val:.4f}  std={std_val:.4f}")
     print(f"Test Acc (CV holdout):    mean={mean_test:.4f}  std={std_test:.4f}")
     print(f"Test Loss (CV holdout):   mean={mean_test_loss:.4f}  std={std_test_loss:.4f}")
