@@ -30,7 +30,7 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True  # images fixed size => faster
+    torch.backends.cudnn.benchmark = True
 
 def is_image_file(p: Path) -> bool:
     return p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp"}
@@ -41,7 +41,7 @@ def list_images_direct(d: Path) -> List[Path]:
     return [p for p in d.iterdir() if p.is_file() and is_image_file(p)]
 
 # ---------------------------
-# Dataset curation (hand/leaf/flower/fruit + top-up available, cap<=100)
+# Dataset curation
 # ---------------------------
 PARTS = ["hand", "leaf", "flower", "fruit"]
 
@@ -96,7 +96,6 @@ def scan_dataset(data_root: Path, cap: int = 100, out_dir: Path | None = None) -
     for d in tqdm(species_dirs, desc=f"Scanning dataset & selecting images per class (cap={cap})"):
         sel = build_selection_for_species(d, cap=cap)
         for p in sel.paths:
-            # record origin 'sub' (part) vs 'available'
             part_name = "available"
             src = "available"
             for part in PARTS:
@@ -355,7 +354,7 @@ def run_one_fold(fold_id: int, df: pd.DataFrame, train_idx: np.ndarray, test_idx
 # Main
 # ---------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="ResNet-50 Pure K-Fold Cross-Validation (no fixed test set)")
+    p = argparse.ArgumentParser(description="ResNet-50 K-Fold Cross-Validation")
     p.add_argument("--data_root", type=str, required=True, help="Root folder containing class subfolders")
     p.add_argument("--out_dir", type=str, required=True, help="Output directory for logs/checkpoints")
     p.add_argument("--epochs", type=int, default=30)
@@ -380,10 +379,10 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Scan dataset (apply selection rule & cap)
+    # 1) Scan dataset
     df = scan_dataset(data_root, cap=args.cap_per_class, out_dir=out_dir)
 
-    # 2) Stratified K-Fold (pure CV)
+    # 2) Stratified K-Fold
     labels = df["label_id"].values
     skf = StratifiedKFold(n_splits=args.kfolds, shuffle=True, random_state=args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -419,7 +418,7 @@ def main():
     with open(out_dir / "kfold_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    print("\n===== PURE K-FOLD SUMMARY =====")
+    print("\n===== K-FOLD SUMMARY =====")
     print(f"Val Acc (inner):        mean={mean_val_acc:.4f}  std={std_val_acc:.4f}")
     print(f"Test Acc (CV holdout):  mean={mean_test_acc:.4f}  std={std_test_acc:.4f}")
     print(f"Test Loss (CV holdout): mean={mean_test_loss:.4f}  std={std_test_loss:.4f}")
