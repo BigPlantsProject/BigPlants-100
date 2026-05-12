@@ -364,7 +364,7 @@ def run_one_fold(fold_id: int, df: pd.DataFrame, train_idx: np.ndarray, test_idx
 # Main
 # ---------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="EfficientNetV2-S Pure K-Fold Cross-Validation (no fixed test set)")
+    p = argparse.ArgumentParser(description="EfficientNetV2-S K-Fold Cross-Validation")
     p.add_argument("--data_root", type=str, required=True, help="Root folder containing class subfolders")
     p.add_argument("--out_dir", type=str, required=True, help="Output directory for logs/checkpoints")
     p.add_argument("--epochs", type=int, default=30)
@@ -428,7 +428,7 @@ def main():
     with open(out_dir / "kfold_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    print("\n===== PURE K-FOLD SUMMARY =====")
+    print("\n===== K-FOLD SUMMARY =====")
     print(f"Val Acc (inner):        mean={mean_val_acc:.4f}  std={std_val_acc:.4f}")
     print(f"Test Acc (CV holdout):  mean={mean_test_acc:.4f}  std={std_test_acc:.4f}")
     print(f"Test Loss (CV holdout): mean={mean_test_loss:.4f}  std={std_test_loss:.4f}")
