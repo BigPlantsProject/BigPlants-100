@@ -1,7 +1,7 @@
 """
 Multi-Class Classification (100 classes) with Multi-Teacher Knowledge Distillation
 
-Teachers:   ResNet-50 + ConvNeXtV2-S + EfficientNetV2-S
+Teachers:   ResNet-50 + ConvNeXtV2 + EfficientNetV2-S
 Student:    MobileNetV3-Large
 
 Dataset rule per class (folder):
@@ -20,7 +20,7 @@ Final artifacts:
   - CSV/JSON metrics and classification reports.
 
 Usage example:
-  python kd_multiteacher_mobilenetv3_resnet.py \
+  python multi_teacher_kd.py \
     --data_root /path/to/dataset_root \
     --out_dir /path/to/outputs \
     --epochs 30 --batch_size 32 --lr 3e-4 --num_workers 8 \
@@ -59,7 +59,7 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True  # fixed-size imgs → faster
+    torch.backends.cudnn.benchmark = True
 
 # ---------------------------
 # Dataset scanning & selection logic
@@ -202,10 +202,10 @@ def build_resnet50(num_classes: int) -> Tuple[nn.Module, str]:
     m.fc = nn.Linear(in_f, num_classes)
     return m, "torchvision:resnet50"
 
-def build_convnextv2_s(num_classes: int) -> Tuple[nn.Module, str]:
+def build_convnextv2(num_classes: int) -> Tuple[nn.Module, str]:
     try:
         import timm
-        for name in ["convnextv2_small", "convnextv2_small.fcmae_ft_in22k_in1k"]:
+        for name in ["convnextv2_tiny.fcmae_ft_in22k_in1k"]:
             try:
                 m = timm.create_model(name, pretrained=True, num_classes=num_classes)
                 return m, f"timm:{name}"
@@ -576,13 +576,13 @@ def parse_args():
     # KD hyper-parameters
     p.add_argument("--kd_T", type=float, default=3.0, help="KD temperature")
     p.add_argument("--kd_lambda", type=float, default=0.5, help="KD weight (0..1)")
-    p.add_argument("--teacher_weights", type=str, default="", help="Comma separated weights for [ResNet, ConvNeXtV2-S, EfficientNetV2-S]")
+    p.add_argument("--teacher_weights", type=str, default="", help="Comma separated weights for [ResNet, ConvNeXtV2, EfficientNetV2]")
 
     # Stage control
     p.add_argument("--stage", type=str, choices=["teachers", "distill", "all"], default="all")
     # Optionally provide teacher ckpts to skip training
     p.add_argument("--resnet_ckpt", type=str, default="")
-    p.add_argument("--convnextv2s_ckpt", type=str, default="")
+    p.add_argument("--convnextv2_ckpt", type=str, default="")
     p.add_argument("--effnetv2s_ckpt", type=str, default="")
 
     return p.parse_args()
@@ -617,9 +617,9 @@ def main():
         t_weights = [1/3, 1/3, 1/3]
 
     # 3) Build models
-    # Teachers: ResNet-50, ConvNeXtV2-S, EfficientNetV2-S
+    # Teachers: ResNet-50, ConvNeXtV2, EfficientNetV2-S
     resnet, resnet_backend = build_resnet50(num_classes)
-    conv2, conv2_backend = build_convnextv2_s(num_classes)
+    conv2, conv2_backend = build_convnextv2(num_classes)
     eff2, eff2_backend = build_efficientnetv2_s(num_classes)
     teacher_backends = [resnet_backend, conv2_backend, eff2_backend]
     print("Teacher backends:", teacher_backends)
@@ -633,7 +633,7 @@ def main():
 
     teacher_ckpts = {
         "resnet": args.resnet_ckpt or str(teachers_dir / "resnet50" / "best.pt"),
-        "conv2s": args.convnextv2s_ckpt or str(teachers_dir / "convnextv2_s" / "best.pt"),
+        "conv2s": args.convnextv2_ckpt or str(teachers_dir / "convnextv2" / "best.pt"),
         "eff2s": args.effnetv2s_ckpt or str(teachers_dir / "efficientnetv2_s" / "best.pt"),
     }
 
@@ -645,12 +645,12 @@ def main():
         else:
             print(f"[ResNet-50] Skipping training, using provided ckpt: {args.resnet_ckpt}")
 
-        if not args.convnextv2s_ckpt or not Path(args.convnextv2s_ckpt).exists():
-            _ = train_teacher(conv2, "convnextv2_s", train_loader, val_loader, device,
+        if not args.convnextv2_ckpt or not Path(args.convnextv2_ckpt).exists():
+            _ = train_teacher(conv2, "convnextv2", train_loader, val_loader, device,
                               epochs=args.epochs, lr=args.lr, weight_decay=args.weight_decay,
                               out_dir=teachers_dir, patience=args.patience)
         else:
-            print(f"[ConvNeXtV2-S] Skipping training, using provided ckpt: {args.convnextv2s_ckpt}")
+            print(f"[ConvNeXtV2] Skipping training, using provided ckpt: {args.convnextv2_ckpt}")
 
         if not args.effnetv2s_ckpt or not Path(args.effnetv2s_ckpt).exists():
             _ = train_teacher(eff2, "efficientnetv2_s", train_loader, val_loader, device,
@@ -659,7 +659,7 @@ def main():
         else:
             print(f"[EffNetV2-S] Skipping training, using provided ckpt: {args.effnetv2s_ckpt}")
 
-    # 5) Load teacher weights (from provided or from trained)
+    # 5) Load teacher weights
     def load_ckpt(model: nn.Module, path: str, tag: str):
         p = Path(path)
         if not p.exists():
@@ -672,19 +672,19 @@ def main():
             model.load_state_dict(state[key])
         print(f"[{tag}] Loaded checkpoint: {path}")
 
-    # reload fresh teacher instances
+    # Reload fresh teacher instances
     resnet_t, _ = build_resnet50(num_classes)
-    conv2_t, _ = build_convnextv2_s(num_classes)
+    conv2_t, _ = build_convnextv2(num_classes)
     eff2_t, _ = build_efficientnetv2_s(num_classes)
 
     if args.stage in ("distill", "all"):
         load_ckpt(resnet_t, teacher_ckpts["resnet"], "ResNet-50")
-        load_ckpt(conv2_t, teacher_ckpts["conv2s"], "ConvNeXtV2-S")
+        load_ckpt(conv2_t, teacher_ckpts["conv2s"], "ConvNeXtV2")
         load_ckpt(eff2_t, teacher_ckpts["eff2s"], "EfficientNetV2-S")
 
         # 6) Train student with KD
         kd_results = train_student_kd(
-            student=student, teachers=[resnet_t, conv2_t, eff2_t], teacher_names=["resnet50","convnextv2_s","efficientnetv2_s"],
+            student=student, teachers=[resnet_t, conv2_t, eff2_t], teacher_names=["resnet50","convnextv2","efficientnetv2_s"],
             train_loader=train_loader, val_loader=val_loader, test_loader=test_loader,
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
             epochs=args.epochs, lr=args.lr, weight_decay=args.weight_decay,
