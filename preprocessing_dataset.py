@@ -169,16 +169,16 @@ def build_index_map(in_root: Path, files) -> Dict[Path, str]:
 
 def main():
     parser = argparse.ArgumentParser(description="Resize dataset to a uniform size with pad/crop/stretch, and rename outputs as FolderName_index.")
-    parser.add_argument("--input", required=True, help="Thư mục gốc chứa 100 folders (mỗi lớp 1 folder).")
-    parser.add_argument("--output", required=True, help="Thư mục xuất ảnh đã chuẩn hoá.")
-    parser.add_argument("--size", default="224", help="Ví dụ: 224 hoặc 384x384 (mặc định: 224).")
+    parser.add_argument("--input", required=True, help="Root directory containing 100 folders (one folder per class).")
+    parser.add_argument("--output", required=True, help="Output directory for normalized images.")
+    parser.add_argument("--size", default="224", help="Example: 224 or 384x384 (default: 224).")
     parser.add_argument("--mode", choices=["pad", "crop", "stretch"], default="pad",
-                        help="pad (khuyến nghị), crop (center-crop), hoặc stretch (không khuyến nghị).")
-    parser.add_argument("--bg", default="edge", help="Nền cho pad: 'edge' hoặc mã hex như #FFFFFF.")
+                        help="pad (recommended), crop (center-crop), or stretch (not recommended).")
+    parser.add_argument("--bg", default="edge", help="Background for padding: 'edge' or hex color code such as #FFFFFF.")
     parser.add_argument("--format", choices=["keep", "jpg", "png"], default="jpg",
-                        help="Định dạng lưu: giữ nguyên, ép JPG, hoặc ép PNG (mặc định: jpg).")
-    parser.add_argument("--quality", type=int, default=95, help="JPEG quality (95 mặc định).")
-    parser.add_argument("--workers", type=int, default=8, help="Số luồng xử lý song song.")
+                        help="Save format: keep original, force JPG, or force PNG (default: jpg).")
+    parser.add_argument("--quality", type=int, default=95, help="JPEG quality (default: 95).")
+    parser.add_argument("--workers", type=int, default=8, help="Number of parallel processing workers.")
     args = parser.parse_args()
 
     in_root = Path(args.input).expanduser().resolve()
@@ -192,7 +192,7 @@ def main():
 
     files = list(scan_images(in_root))
     if not files:
-        print("Không tìm thấy ảnh hợp lệ trong --input.", file=sys.stderr)
+        print("No valid images were found in --input.", file=sys.stderr)
         sys.exit(1)
 
     # Build deterministic per-class index map BEFORE threading
