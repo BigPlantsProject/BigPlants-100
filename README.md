@@ -56,7 +56,7 @@ BigPlants-100/
 │  ├─ student_test_report.csv
 │  ├─ kd_student_test_confusion_matrix.npy
 │  └─ ...
-└─ bigplants100_name_list.csv
+└─ bigplants100_name_list.txt
 └─ check_duplicates_phash.py
 └─ preprocessing_dataset.py
 └─ README.md
