@@ -52,7 +52,6 @@ BigPlants-100/
 │  │  └─ resnet50_cross_validation.py
 ├─ knowledge_distillation/
 │  ├─ multi_teacher_kd.py
-│  ├─ best_student_kd.pt
 │  ├─ student_test_report.csv
 │  ├─ kd_student_test_confusion_matrix.npy
 │  └─ ...
