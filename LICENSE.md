@@ -1,4 +1,4 @@
-# BigPlants-100 Dataset Non-Commercial Research License Agreement
+<div align="center"> <h1>BigPlants-100 Dataset Non-Commercial Research License Agreement</h1> </div>
 
 **Copyright © 2026 Phan Thanh Cong, Tran Vu Bao, and Contributors. All rights reserved.**
 
