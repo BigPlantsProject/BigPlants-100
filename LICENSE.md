@@ -21,6 +21,6 @@ If you use the BigPlants-100 dataset in your research, please cite:
 @article{bigplants100_2026,
   title   = {From Classical CNNs to Modern Deep Architectures: Multiclass Plant Recognition on the BigPlants Dataset},
   author  = {P.T. Cong, T.V. Bao and others},
-  journal = {Under Review},
+  journal = {Journal of Information Hiding and Multimedia Signal Processing},
   year    = {2026}
 }
