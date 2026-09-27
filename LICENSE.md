@@ -20,7 +20,11 @@ If you use the BigPlants-100 dataset in your research, please cite:
 ```bibtex
 @article{bigplants100_2026,
   title   = {From Classical CNNs to Modern Deep Architectures: Multiclass Plant Recognition on the BigPlants Dataset},
-  author  = {P.T. Cong, T.V. Bao and others},
+  author  = {Phan Thanh Cong and Tran Vu Bao and Nguyen Dinh Thuan and Nguyen Minh Nhut and Pham Huy Hung},
   journal = {Journal of Information Hiding and Multimedia Signal Processing},
+  volume  = {17},
+  number  = {3},
+  pages   = {504--524},
+  month   = sep,
   year    = {2026}
 }
